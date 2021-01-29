@@ -1,0 +1,2 @@
+output = 'Hello world!';
+eof;

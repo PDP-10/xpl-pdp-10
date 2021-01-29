@@ -1,0 +1,712 @@
+	title  xpllib -- the xpl system library
+ 
+	subttl	r.w. hay - modified for tty and binary - 22-jul-74
+	external	.jbff,.jbrel
+ 
+r0=0;
+r1=1;
+r2=2;
+r3=3;
+r4=4;
+r5=5;
+r6=6;
+r7=7;
+r8=10;
+r9=11;
+r10=12;
+r11=13;
+r12=14;
+r13=15;
+r14=16;
+r15=17;
+ 
+p=r15		;push-down list for package
+ 
+;	ascii character codes
+ 
+cr==15		;carriage return
+lf==12		;line feed
+ff==14		;form feed
+ht==11		;horizontal tab
+ 
+;
+;	flag bit definitions
+;
+;left half
+filopn=	1		;file has had open done on it
+filout= 2		;file is output file
+filin= 4		;file is input file
+chncls=	10		;software channel is not open (closed)
+chnchg=	20		;software channel must be reopened before next lookup/enter
+chnfal=	40		;last open failed
+filbin=	100		;file (software channel) is inited for binary (14)
+ 
+;entry decoder
+;
+; r11=library service
+;
+;
+	loc	40
+uuo:	z			;uuo stored here.
+	jsr	xpllib		;uuo entry point
+	reloc
+ 
+	entry	xpllib
+ 
+xpllib:	z
+	movem	r15,save+r15	;save ac 15
+	movei	r15,save	;make a blt pointer word
+	blt	r15,save+r14	;save them all
+	move	p,pdl		;initialize pdl
+	move	r14,uuo	
+	ldb	r11,[point 9,r14,8]	;put function code in r11
+	hrrei	r12,0(r14)		;put file number into r12
+	ldb	r13,[point 4,r14,12]	;argument register # to r13
+	move	r13,save(r13)		;load r13 with actual arg.
+	jumpa	table(r11)	;go on function code in r11
+table:	jrst	return		;0 = impossible
+	jumpa	inits		;1 = initialize
+	jumpa	inputs		;2 = sequential input
+	jumpa	putout		;3 = sequential output
+	jumpa	exits		;4 = exit called
+	jrst	filset		;5 = set file name and device
+	jrst	binin		;6 = binary sequential file input
+	jrst	binout		;7 = binary sequential file output
+	jrst	filset		;8 = dummy
+	jrst	return		;9 = dummy
+ 
+;
+;standard library return
+;
+return:
+ret1:	movsi	r15,save		;set up for return
+	blt   r15,r15           ;restore r1 to r15
+	jrst  @xpllib              ;return to caller
+ 
+;
+;initialize xpl system
+;
+;
+;returns
+;
+; r12=first word of string space
+; r13=last word of string space
+;
+inits:    reset                   ;reset channels
+	move	r1,.jbff	;get first free location
+	lsh	r1,2		;convert to byte address
+	movem	r1,save+r12
+	move	r1,.jbff	;get first free again
+	addi	r1,4*2000	;at least 4k for strings
+	camle	r1,.jbrel
+	core	r1,
+	jfcl			;ignore error
+	move	r1,.jbrel
+	subi	r1,|d700	;subtract space for pdl
+	movem	r1,save+r15	;construct pdl pointer
+	subi	r1,|d300	;**temp **
+	lsh	r1,2		;convert to byte address
+	movem	r1,save+r13
+	movni	r1,|d699	;size of pdl
+	hrlm	r1,save+r15	;finish pdl  pointer
+	move	r1,.jbrel	;get top of current core
+	movem	r1,.jbff	;make sure monitor doesn't use space
+	aos	.jbff
+ 
+	setzm	zerst		;clear all locations changed during execution
+	move	r1,[xwd zerst,zerst+1]
+	blt	r1,zerstp
+ 
+	move	r1,[sixbit /sysin/]	;logical device 0 = sysin
+	movem	r1,devlst
+	hrri	r1,'out'	;logical device 1 = sysout
+	movem	r1,devlst+1
+	movsi	r1,'dsk'	;default for all others is dsk
+	movem	r1,devlst+2
+	move	r1,[xwd devlst+2,devlst+3]
+	blt	r1,devlst+|d15
+ 
+	movsi	r1,-|d16	;set filnames to 'xplnn.dat'
+	move	r2,[sixbit /xpl00 /]
+	movsi	r3,'dat'
+	movem	r2,filnam(r1)
+	movem	r3,filnam+1(r1)
+	addi	r2,100		;increment file name
+	trne	r2,1000		;is it 08,09,or 10?
+	trnn	r2,600		;is it 10?
+	skipa				;no
+	hrri	r2,'10 '	;yes. make it look right
+	addi	r1,3		;want index to increment by 4
+	aobjn	r1,.-8		;loop for all files
+ 
+	movsi	r0,chncls	;initial flags: all channels closed
+	movem	r0,flags
+	move	r1,[xwd flags,flags+1]	;
+	blt	r1,flags+|d15
+ 
+	jrst	return
+ 
+;sequential input
+;
+;input parameters
+;
+; r12=unit (0)
+;     sysin
+; r13=tsa
+;
+;returns
+;
+; r12=xpl string dope vector
+; r13=new tsa
+;
+;register usage
+;
+; r1=input buffer
+; r2=output string pointer
+; r3=input buffer length
+; r4=work
+;
+inputs:	move	r13,save+r13	;register 13 set up by xpl prog
+	jumpl	r12,ttyin	;do ttcall input if -ve unit
+	caie	r12,1		;1 is illegal for input
+	caile	r12,|d15	;make sure of legal file number
+	jrst	inerr1		;tell user and quit
+	move	r0,flags(r12)	;load flags for this file.
+	tlnn	r0,filin	;is it set for input?
+	jrst	.+3		;no.
+	tlnn	r0,filbin	;is it ascii?
+	jrst	inpok		;yes. go use it
+	pushj	p,closfl	;no to any of above: close file
+	tlne	r0,chncls	;is channel inited?
+	pushj	p,initas	;no. open in ascii
+	tlne	r0,filbin	;binary mode?
+	pushj	p,setasc	;yes. set it to ascii
+	pushj	p,lookfl	;do lookup, etc.
+	movem	r0,flags(r12)	;save flags
+;
+inpok:
+	skipe	r0,eofsw(r12)	;test for eof
+	jumpa	input2		;go return null string
+	move	r1,r13		;address of first byte 
+	subi	r1,1		;correct for idpb
+	lshc	r1,-2		;core address in r1
+	lsh	r2,-42		;byte no. in r2
+	hll	r1,bytept(r2)	;construct 9-bit byte pointer
+	movei	r2,0		;clear count of bytes input
+;
+getin:	sosle	@icnt(r12)	;anything in buffer?
+	jrst	inld		;yes
+	xct	inlst(r12)	;get next buffer. any errors?
+	jrst	inld		;no
+	setom	eofsw(r12)	;yes
+	jrst	endlin
+;
+inld:	ildb	r0,@iptr(r12)	;pick up char.
+	cain	r0,cr		;ignore carriage-return
+	jrst	getin
+	jumpe	r0,getin	;ignore nulls
+	caie	r0,lf		;lf?
+	cain	r0,ff		;or ff?
+	jrst	endlin
+	idpb	r0,r1
+	aoja	r2,getin
+;
+endlin:	jumpe	r2,oneblk	;nothing. give him a single blank
+	move	r1,r2
+	lsh	r1,33		;put count into r1
+	add	r1,r13		;construct new dope vector
+	addm	r2,save+r13	;update tsa for return
+	jrst	inptex		;return
+;
+oneblk:	movei	r0," "		;load a blank
+	idpb	r0,r1		;store it away
+	aoja	r2,endlin	;increment count and finish up
+;
+input2:	setz	r1,		;final result = 0 (null)
+inptex:	ldb	r12,[point 4,r14,12]	;find result register
+	movem	r1,save(r12)	;store result in designated reg.
+	jumpa	return		;goto exit
+ 
+ttyin:	move	r1,r13		;get tsa
+	subi	r1,1		;adjust for idpb
+	idivi	r1,4		;calculate word address
+	hll	r1,bytept(r2)	;and make a byte pointer
+	movei	r2,0		;clear count of bytes input
+ttyin1:	inchwl	r0		;get next character from input
+	cain	r0,cr		;carriage return?
+	jrst	ttyin2		;yes.
+	idpb	r0,r1		;no. put away in new string
+	aoja	r2,ttyin1	;loop until cr.
+ 
+ttyin2:	inchwl	r0		;look for line-feed
+	caie	r0,lf
+	jrst	ttyin2		;loop until found
+	jrst	endlin		;go to common routine
+ 
+inerr1:	outstr	[asciz /illegal file number in call to input.
+/]
+	jrst	exits
+ 
+;sequential output
+;
+;input parameters
+;
+; r12=unit (0,1,2,3) for
+;     sysout
+;     sysout with cc
+;     sysut1
+;     sysut2
+; r13=xpl string dope vector
+;
+;register usage
+;
+; r0=output buffer length
+; r1=input string length
+; r2=input string pointer
+; r3=output buffer pointer
+; r4=work
+;
+putout:	jumpl	r12,ttyout	;type if file # -ve
+	caile	r12,|d15	;make sure file number is legal
+	jrst	oterr1		;tell user and quit
+	setzm	noctl		;tested later
+	jumpg	r12,put0	;file 0?
+	setom	noctl		;yes. change to 1 , but remember
+	aoj	r12,		;increment r12 to right number
+put0:	move	r0,flags(r12)	;load flags for this file.
+	tlnn	r0,filout	;is it set for output?
+	jrst	.+3		;no.
+	tlnn	r0,filbin	;is it ascii?
+	jrst	outok		;yes. go use it
+	pushj	p,closfl	;no to any of above: close file
+	tlne	r0,chncls	;is channel inited?
+	pushj	p,initas	;no. open in ascii
+	tlne	r0,filbin	;binary mode?
+	pushj	p,setasc	;yes. set it to ascii
+	pushj	p,entfil	;do enter, etc.
+	movem	r0,flags(r12)	;save flags
+;
+outok:	move  r2,r13            ;copy dv for bursting
+	movei	r1,0		;clear length reg
+	lshc  r1,11             ;length to r1 (9 bits)
+	move  r0,r1             ;copy length in r0
+	lsh   r2,-11            ;byte addr only
+	subi  r2,1              ;decr optr for ildp
+	lshc  r2,-2           ;byte offset to r3
+	lsh   r3,-42            ;right justify byte offset
+	hll   r2,bytept(r3)     ;form pdp-10 optr
+	cain	r12,1             ;cc unit specified?
+	skipe	noctl		;was 0. no control.
+	jumpa	out3		;no
+	subi  r1,1              ;decr input count for cc char
+	ildb  r4,r2             ;pick up cc byte
+	caie  r4,"0"             ;is it 0? (double space)
+	jumpa	out1		;no, go look for others
+	pushj	p,lfout		;put out a line feed
+	jumpa	out3		;
+	;
+out1:     caie  r4,"1"            ;is it 1? (eject)
+	jumpa	out3		;no, ignore it
+	movei	r4,14		;ff
+	pushj	p,charot	;put it out
+out3:     jumpe r1,out5          ;go around if null string
+out4:     ildb  r4,r2            ;pick up one byte
+	pushj	p,charot	;output character
+	sojg  r1,out4          ;loop thru all bytes
+out5:	pushj	p,crlf		;add cr-lf sequence at end of string
+	jumpa	return		;goto exit
+ 
+ttyout:	move	r1,r13		;get string pointer
+	tlz	r1,777000	;clear count
+	subi	r1,1		;adjust for ildb
+	idivi	r1,4		;get word address
+	hll	r1,bytept(r2)	;make correct byte pointer
+	ldb	r2,[point 9,r13,8]	;get count from r13
+	jumpe	r2,ttyodn	;just cr,lf if count = 0
+ttyou1:	ildb	r0,r1		;get next byte
+	trne	r0,173		;skip it if = 004(eot) or 000(nul)
+	outchr			;stuff it out
+	sojg	r2,ttyou1	;loop until all out
+;
+ttyodn:	came	r12,[-2]	;no cr-lf if file # =-2
+	outstr	[byte	(7)cr,lf,0]	;type cr,lf
+	jrst	return		;return to caller
+ 
+oterr1:	outstr	[asciz /illegal file number in output call
+/]
+	jrst	exits
+ 
+crlf:	movei	r4,cr		;load cr into register
+	pushj	p,charot	;put it out
+lfout:	movei	r4,lf		;load a line feed
+charot:	sosg	@ocnt(r12)	;decrement item count
+	xct	outlst(r12)	;no space left. do output
+	idpb	r4,@optr(r12)	;put byte into buffer
+	popj	p,		;return
+ 
+;
+;call exit routine
+;
+exits:	movsi	r2,-|d16	;set loop counter
+eloop:	move	r0,flags(r2)	;get file flags
+	tlnn	r0,filopn	;is file open?
+	jrst	ext1		;no. check next file
+	tlne	r0,filout	;yes. is it output?
+	xct	outlst(r2)	;yes. one last output to clr buffer
+	xct	clslst(r2)	;close file
+ext1:	aobjn	r2,eloop	;loop for all files
+	exit
+ 
+;	set new file name routine
+;	call with string = device:filename.extension
+;	if device is omitted, dsk assumed
+;	if extension is omitted, 'dat' is assumed.
+;;
+filset:
+	jumpl	r12,seter1	;only file numbers 0-15 legal
+	caile	r12,|d15
+	jrst	seter1
+	move	r0,flags(r12)	;get file's flags
+	pushj	p,closfl	;make sure file is closed
+	ldb	r1,[point 9,r13,8]	;get byte count
+	move	r2,r13		;get copy of pointer
+	tlz	r2,777000	;clear length code
+	subi	r2,1		;adjust for ildb
+	idivi	r2,4		;find word address and displ.
+	hll	r2,bytept(r3)	;make a byte pointer in r2
+	move	r13,r12		;construct index to file table
+	imuli	r13,4
+	move	r3,[sixbit /xpl00/]	;make default file name
+	move	r4,r12		;get file number
+	idivi	r4,|d10		;two digits
+	lsh	r4,|d12		;shift tens digit
+	lsh	r5,|d6		;units digit
+	add	r3,r4
+	add	r3,r5		;make file name right
+	movem	r3,filnam(r13)	;make default name block
+	movsi	r3,'dat'
+	movem	r3,filnam+1(r13)
+	setzm	filnam+2(r13)
+	setzm	filnam+3(r13)	;own proj-prog number
+	movsi	r3,'dsk'	;standard device name
+	movem	r3,tempdv#	;save for later ref.
+	setzb	r4,r6		;clear regs
+	move	r5,[point 6,r6]	;init byte pointer
+	jumple	r1,fildon	;just reset file if given null string
+;
+filst1:	ildb	r3,r2		;get first (next) byte
+	cain	r3,":"		;end of device name spec?
+	jrst	filst2		;yes
+	caie	r3,"."		;either . or [ mark end of name
+	cain	r3,"["		;of file
+	jrst	filst4
+	subi	r3,40		;convert to sixbit
+	aoj	r4,		;increment count of characters
+	caig	r4,6		;maximum is six
+	idpb	r3,r5		;stuff into acc.
+	sojg	r1,filst1	;loop back if more there
+	jrst	filst4		;nope--must be just name
+;
+filst2:	movem	r6,tempdv	;save new device name
+	setzb	r4,r6		;clear regs for file name
+	move	r5,[point 6,r6]	;initial byte pointer
+	sojle	r1,fildon	;all done if no more chars
+filst3:	ildb	r3,r2		;get next byte
+	caie	r3,"."		;legal terminators are .
+	cain	r3,"["		;and [
+	jrst	filst4		;found one. do name stuff
+	subi	r3,40		;convert to sixbit
+	aoj	r4,		;increment count of chars
+	caig	r4,6		;only six alowwed
+	idpb	r3,r5		;stuff into acc.
+	sojg	r1,filst3	;loop back if more there
+;
+filst4:	movem	r6,filnam(r13)	;save new file name
+	setzb	r4,r6		;init regs
+	move	r5,[point 6,r6]	;init byte pointer
+	sojle	r1,fildon	;all done if count exhausted
+	cain	r3,"["		;if stopped on [, there is no ext
+	jrst	filst7		;go look for proj,prog
+filst5:	ildb	r3,r2		;get next byte
+	cain	r3,"["		;only legal terminator is [
+	jrst	filst6		;save new ext
+	subi	r3,40		;convert to sixbit
+	addi	r4,1		;increment char count
+	caig	r4,3		;only three allowed
+	idpb	r3,r5		;stuff it in
+	sojg	r1,filst5	;loop back if there is more
+;
+filst6:	movem	r6,filnam+1(r13)	;store new extention
+	sojle	r1,fildon	;all done when count done
+filst7:	setzb	r4,r6		;clear regs
+filst8:	ildb	r3,r2		;get next char
+	cain	r3,","		;proj number terminated by ,
+	jrst	filst9		;
+	andi	r3,7		;keep only octal bits
+	addi	r4,1		;count number of digits
+	caile	r4,6		;must not exceed 6
+	jrst	seter2
+	imuli	r6,10		;mulitply prev. no. by 8
+	add	r6,r3		;add new digit
+	sojg	r1,filst8	;go back for next digit
+	jrst	seter2		;error if exhausted
+;
+filst9:	hrlz	r5,r6		;put proj no. in left half
+	setzb	r4,r6		;clear regs
+	sojle	r1,seter2
+filsta:	ildb	r3,r2		;get next char
+	cain	r3,"]"		;legal terminator is ]
+	jrst	filstb		;found it
+	andi	r3,7		;make into octal digit
+	addi	r4,1		;increment count
+	caile	r4,6		;must not exceed 6
+	jrst	seter2		;or error
+	imuli	r6,10		;multiply by 8
+	add	r6,r3		;add new digit
+	sojg	r1,filsta	;loop for rest
+	jrst	seter2		;error if not enough
+;
+filstb:	hrr	r5,r6		;prog no to right half
+	movem	r5,filnam+3(r13)	;save proj,prog no.
+;
+fildon:	move	r5,tempdv	;get new device name
+	came	r5,devlst(r12)	;is it same as old device?
+	tlo	r0,chncls	;no. indicate init is required
+	movem	r5,devlst(r12)	;store new device name
+	movem	r0,flags(r12)	;save file flags
+;
+	jrst	ret1		;return to caller
+ 
+seter1:	outstr	[asciz /invalid file number to "filename".
+/]
+	jrst	exits
+ 
+seter2:	outstr	[asciz /improper proj,prog number to "filename".
+own number used instead.
+/]
+	jrst	fildon
+ 
+;	binary input (sequential) routine
+;
+;
+binin:
+	caile	r12,1		;files 0,1 are ascii only
+	caile	r12,|d15	;max file # is 15
+	jrst	inerr1		;type error message
+	move	r0,flags(r12)	;load flags for this file.
+	tlnn	r0,filin	;is it set for input?
+	jrst	.+3		;no.
+	tlne	r0,filbin	;is it binary?
+	jrst	binok		;yes. go use it
+	pushj	p,closfl	;no to any of above: close file
+	tlne	r0,chncls	;is channel inited?
+	pushj	p,initbi	;no. open in binary
+	tlnn	r0,filbin	;binary mode?
+	pushj	p,setbin	;no. set it to binary
+	pushj	p,lookfl	;do lookup, etc.
+	movem	r0,flags(r12)	;save flags
+;
+binok:	skipe	eofsw(r12)	;anything left?
+	jrst	bin1		;return a zero for now
+	sosle	@icnt(r12)	;decrement byte counter
+	jrst	binld		;ok. go load byte
+	xct	inlst(r12)	;do input for new buffer
+	jrst	binld		;ok. load byte
+	setom	eofsw(r12)	;flag end of file (maybe error)
+ 
+bin1:	setz	r1,		;return a zero
+	jrst	binret
+;
+binld:	ildb	r1,@iptr(r12)	;load next byte from buffer
+binret:	ldb	r12,[point 4,r14,12]	;get result register #
+	movem	r1,save(r12)	;return it in r12
+	jrst	return		;return to caller
+ 
+;	binary sequential output routine
+;
+binout:
+	caile	r12,1		;files 0, 1 are ascii only
+	caile	r12,|d15	;file number 15 or less
+	jrst	oterr1		;wrong: type error message
+	move	r0,flags(r12)	;load flags for this file.
+	tlnn	r0,filout	;is it set for output?
+	jrst	.+3		;no.
+	tlne	r0,filbin	;is it binary?
+	jrst	boutok		;yes. go use it
+	pushj	p,closfl	;no to any of above: close file
+	tlne	r0,chncls	;is channel inited?
+	pushj	p,initbi	;no. open in binary
+	tlnn	r0,filbin	;binary mode?
+	pushj	p,setbin	;no. set it to binary
+	pushj	p,entfil	;do enter, etc.
+	movem	r0,flags(r12)	;save flags
+;
+boutok:	sosg	@ocnt(r12)	;space left in buffer?
+	xct	outlst(r12)	;no. do output
+	idpb	r13,@optr(r12)	;put word into buffer
+	jrst	return		;return to caller
+ 
+;		common subroutines
+ 
+;	open (init) a logical channel
+ 
+initas:	movei	r1,0		;set mode bits = ascii
+	jrst	initfl		;init the file
+ 
+initbi:	movei	r1,14		;set mode bits to buffered binary
+				;fall into init routine
+ 
+;	enter with mode bits in ac r1
+initfl:	move	r2,devlst(r12)	;get specified device 
+	move	r3,[xwd 3,3]	;set up buffer header pointers
+	imul	r3,r12		;displacements into ibufs and obufs
+	add	r3,[xwd obufs,ibufs]
+initf1:	xct	opnlst(r12)	;try open
+	jrst	initf2		;failed
+	tlz	r0,chncls|chnchg	;clear channel closed and channel change bite
+	cain	r1,0		;was this ascii?
+	tlza	r0,filbin	;yes
+	tlo	r0,filbin	;no. assume binary
+	tlz	r0,filopn|filin|filout	;clear flag bits
+	setzm	eofsw(r12)	;clear end-of-file flag
+	popj	p,		;return
+ 
+initf2:	camn	r2,[sixbit /dsk/]	;fialure on device dsk?
+	jrst	initfe		;yes
+	movsi	r2,'dsk'	;no. change to dsk leave devlst entry alone
+	jrst	initf1		;try again
+ 
+initfe:	outstr	[asciz /can't init logical device.
+/]
+	jrst	exits
+ 
+;	set logical channel to binary (14) mode
+ 
+setbin:	tlo	r0,filbin	;set bit
+	xct	gstlst(r12)	;get file status bits
+	trne	r1,10		;binary mode?
+	popj	p,		;yes
+	trze	r1,17		;no clear all bits
+	tro	r1,14		;set mode 14
+	xct	sstlst(r12)	;set file status
+	popj	p,		;return
+ 
+;	routine to set ascii mode on logical channel
+ 
+setasc:	tlz	r0,filbin	;clear binary bit
+	xct	gstlst(r12)	;get file status bits
+	trzn	r1,17		;any mode bits on?
+	popj	p,		;no. must be ascii
+	xct	sstlst(r12)	;yes. set new file status
+	popj	p,		;return
+ 
+;routine to close a file if it is open.
+ 
+closfl:	tlnn	r0,filopn	;is file open?
+	jrst	clos1		;no
+	tlne	r0,filout	;yes. is it output file?
+	xct	outlst(r12)	;yes. do output to flush buffer
+	xct	clslst(r12)	;close the file
+clos1:	tlz	r0,filopn|filin|filout	;clear the relevant bits
+	tlnn	r0,chncls	;unless channel not inited,
+	xct	rewlst(r12)	;rewind the file.
+	popj	p,		;return
+ 
+ 
+;	open file on logical channel for input
+ 
+lookfl:	movs	r4,r12		;file number to r4 lh
+	lsh	r4,2		;times 4 to address right name block
+	add	r4,[xwd filnam,r1]	;make a blt word
+	blt	r4,r4		;lookup block in r1-r4
+	xct	luklst(r12)	;do lookup
+	jrst	luker1		;not there
+	tlo	r0,filopn|filin	;set channel status bits
+	setzm	eofsw(r12)	;clear end-of-file switch
+	popj	p,		;return
+ 
+ 
+;	open file on logical channel for output
+ 
+entfil:	movs	r4,r12		;file number to lh r4
+	lsh	r4,2		;times 4 to address right file name block
+	add	r4,[xwd filnam,r1]	;make a blt word
+	blt	r4,r4		;enter block in r1-r4
+	xct	entlst(r12)	;do enter
+	jrst	enter1		;failed
+	tlo	r0,filopn|filout	;set mode bits for channel
+	popj	p,		;return
+ 
+luker1:	outstr	[asciz /lookup failure.
+/]
+	jrst	exits
+ 
+enter1:	outstr	[asciz /enter failure.
+/]
+	jrst	exits
+ 
+	;
+	;data area
+	;
+ 
+	define	opblk	(opn,adr)	;generates block of ops for each chn
+<	chn=0
+	repeat	|d16,<	opn	chn,adr
+	chn=chn+1>
+>
+	define	indir	(loc)
+<	chn=0
+	repeat	|d16,<	exp	loc'chn
+	chn=chn+1>
+>
+save:    block |d16                ;register save area
+;
+ 
+iptr:	indir	<ibufs+1+3*>	;input byte pointers
+icnt:	indir	<ibufs+2+3*>	;input item counts
+optr:	indir	<obufs+1+3*>	;output byte pointers
+ocnt:	indir	<obufs+2+3*>	;output item counts
+ 
+ 
+outlst:	opblk	output
+ 
+ 
+inlst:	opblk	in		;in uuos for input routines.
+ 
+clslst:	opblk	close
+ 
+opnlst:	opblk	open,r1
+ 
+luklst:	opblk	lookup,r1	;lookup instr
+ 
+entlst:	opblk	enter,r1	;enter instr
+gstlst:	opblk	getsts,r1
+sstlst:	opblk	setsts,r1
+rewlst:	opblk	mtape,1	;rewind operation
+ 
+zerst:
+ibufs:	block	3*|d16		;input buffer pool blocks
+obufs:	block	3*|d16		;output buffer pool blocks
+eofsw:	block	|d16		;end-of-file indicators
+ 
+filnam:
+	block	4*20		;space for 16 file name blocks
+flags:	block	|d16		;flag cells
+ 
+devlst:	block	|d16		;device names for the files
+zerstp=.-1			;stop address for initial clear
+ 
+bytept:  point 9,0,8             ;xpl byte pointers
+	point	9,0,17
+	point	9,0,26
+	point	9,0,35
+ 
+noctl:	block	1		;flag for ascii output on file 0/1
+ 
+pdlsiz=20
+pdl:	iowd	pdlsiz,.+1	;initial pdl pointer word
+	block	pdlsiz		;push-down list
+ 
+	var
+	lit
+	end                     ;

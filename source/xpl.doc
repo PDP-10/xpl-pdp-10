@@ -1,0 +1,250 @@
+	xpl. doc
+	documentation file for xpl on the pdp-10.
+	r. w. hay,
+	computer group,
+	department of electrical engineering,
+	university of toronto,
+	toronto, ontario, canada.
+		and
+	dataline systems limited,
+	175 bedford rd.,
+	toronto, ontario, canada.
+	version 4.0
+	november 20, 1975.
+ 
+	history of xpl on the pdp-10
+	----------------------------
+	this compiler was originally designed and implemented on the pdp-10
+by r.l. bisbey, university of southern california, in 1971.  version
+1 could compile itself, but was restricted in that it had no general
+run-time package (it just set up those text files needed by the
+compiler itself), nor were the built-in procedures file, date, time,
+and inline implemented.
+ 
+	version 2, developed at dataline systems ltd., and the university
+of toronto, by r.w. hay, has much more efficient string catenation
+and number-to-string conversion routines, implemented the built-in
+procedures file, date, time, and has added filename and runtime,
+has a more efficient procedure calling sequence, and produces a more
+informative program listing.
+ 
+	several problems in various parts of the compiler have been 
+fixed, and the compiling speed (to produce the macro form) has been
+improved by a factor of nearly 3.  this speed improvement was mainly
+accomplished by:
+	- using a hash-coding scheme for symbol table manipulation,
+	- generating the string of characters representing a number, in
+	  the number-to-string conversion routine, adjacent to the last
+	  string in the string area,
+	- in the catenation routine, checking for the special cases
+	  (1) the strings are already adjacent, and only the descriptor
+	      needs construction,
+	  (2) the "left" string is the last string, and therefore only
+	      the "right" string needs to be physically moved,
+	- simplifying the procedure calling sequence to that describ-
+	  ed below, from one where all registers were saved at every
+	  call, and restored at every return.
+ 
+	version 3 produces relocatable binary output (and, optionally
+macro-10 source as well), and compiles "compactify" from a common
+library source file.  "inline" facility is also implemented.
+	version 4 recognizes the complete xpl language, including
+typed procedures and factored declarations.
+	wherever possible, the characteristics of xpl as described in
+"a compiler generator" by mckeeman, horning, and wortman, have been
+retained, even at the expense of pdp-10 efficiency or convention.  for
+example, the default radix for bit strings is 16, rather than the
+more "natural" 8.
+ 
+	caveats
+	-------
+ 
+	the compiler is not warranted in any way.
+	the effects of various run-time errors are not known from 
+testing.  the runtime package will abort with a terse message on
+conditions such as "illegal file number", or "lookup failure".
+	planned improvements
+	--------------------
+1. provision of a cross-referencing facility (a la f40).
+ 
+	current state of the compiler and its language
+	----------------------------------------------
+1. the compiler and its runtime package are designed to operate under
+	the control of the standard digital equipment corp. pdp-10
+	monitor.
+2. restrictions
+   ------------
+	- compiler will not handle lower-case characters properly,
+	- max. no. of cases in a do case = 175,
+	- max. no. of declared symbols = 420,
+	- max. no. of macros (DECLARE literally) = 60,
+	- max. no. of string descriptors = 1000.
+3. implementation characteristics
+   ----------------------------------
+	- ~ represents the "not" symbol,
+	- | represents the "vertical bar" symbol,
+	- _ represents the "underscore" symbol,
+	- byte size is 9 bits, 4 bytes to the 36-bit word,
+	- bit (1) to bit(9)   map to byte
+	  bit (10) to bit(36) map to fixed,
+	  bit(>36) maps to character (a string of 9-bit bytes),
+	- date built-in procedure returns the date in pdp-10
+	  condensed form, right-justified in a 36-bit word,
+	- time built-in procedure returns the time of day in
+	  milliseconds since midnight,
+	- runtime built-in procedure returns the accumulated cpu time
+	  for the job in milliseconds,
+	- file pseudo-array is different.
+		file (n)
+	  causes 1 36-bit word to be received from (placed in) file n.
+	  (0<n<16).
+	- the runtime package initialization sets up a free string area
+	  of at least 12000 bytes and a stack (push-down list) of 1000
+	  words. (this may be excessive, but it works).
+	- procedure calls (except to the runtime package) are by
+		pushj 15,xxxx
+	  returns from procedures are by
+		popj	15,0
+	- xpl programs use registers 1-11 (decimal) for expression
+	  evaluation, etc.  functions return values in register 0.
+	  at procedure calls, busy registers are saved in the stack,
+	  and are restored after the return. e.g.:
+		push	15,1
+		push	15,2
+		pushj	15,xxx
+		pop	15,2
+		pop	15,1
+	- calls to the run-time routines use a different sequence:
+		(load	f,file #)	(if specified)
+		(load	r,datum)	(if required)
+		code	r,0(f)		(code is user uuo)
+		(store	r,result)	(if required)
+	- the compiled program loads into two segments:
+		low segment contains all data and strings,
+		high segment contains all instructions.
+	  the program may be "ssaved"" to obtain sharable high segments.
+	- inline built-in function:
+		call is
+		  inline (opcode,ac,indirect,index,loc);
+	  where
+		opcode, ac, indirect, index must all be constants,
+		and loc may be either a constant or <variable>.
+	  the value of "inline" is recognized as "fixed"
+		in register "ac".
+	  e.g.	call inline ("(3)200,2,0,0,i);
+		i = inline ("(3)201,3,0,0,23);
+4. compiler switches (toggles)
+   ---------------------------
+	the compiler control switches implemented, and their functions
+	are as below:
+	switch	initially	function when true
+	---------------------------------------------------------------
+	a	false	produce macro-10 source file for program
+	b	false	list emitted data and descriptors
+	c	false	list emitted constants
+	d	true	list macros and compiler info at end of program
+	e	false	list emitted code
+	f	false	(if l = true) list code, data, descriptor addresses
+	k	false	kill listing output (inhibits l being set)
+	l	true	produce listing with line #, current procedure, etc
+	m	false	list just image of input source (overrides l)
+	r	false	dump parse stack on listing on syntax errors
+	s	true	(if l = true) list symbol table for each proc.
+	x	false	do not include contents of 'xpl.lib'
+5. known problems
+   --------------
+	- run-time routines do not handle any errors, such as overflow,
+	  stack overflow, divide check, etc.  these will either be
+	  ignored or produce a monitor error message.
+	- any error on any file will look like end-of-file (which causes
+	  a null string, or a zero, to be returned on input files).
+ 
+	operating procedures
+	--------------------
+	the compiler (xpl) asks for a filename on the terminal.
+it then opens four files:
+	sysin:<filename>.xpl	xpl source
+	sysout:<filename>.lst	generated listing
+	dsk:<filename>.rel	generated relocatable binary file
+	lib:xpl.lib		source file containing "compactify"
+if the "x" switch is specified in the terminal response, then the
+library file (lib:xpl.lib) is not processed.  this switch may only
+be specified from the terminal.
+if the "a" switch is specified in the terminal response, then the
+two files below are also opened:
+	dsk:<filename>.mac	generated macro assembler source
+	dsk:<filename>.tmp	temporary work file
+	if devices "sysin", "sysout", or "lib" do not exist,
+ "dsk" is used.
+	switches may be specified in the terminal response by
+preceding each switch by a "/".
+	e.g.	test/a		to generated macro-10 source
+		test/l		to list compactify(normally
+				suppressed).
+1. compile the xpl source:
+	.run dsk:xpl	
+	file name to be compiled: xxxx
+	exit
+	|c
+	.
+		at this point file xxxx.lst may be printed.
+2. load or execute the program:
+	.ex xxxx,hmon
+	...
+	...
+	to compile the compiler itself, replace "xxxx" by "xcom" above
+	and run xpl in 35k (ru xpl 35). (this is to reduce the cpu time
+	when compiling large programs.)
+ 
+	the run-time routines
+	---------------------
+	"hmon" is a package designed to support i/o functions
+for general xpl programs.  it supports binary i/o as well
+as text files, both input and output.
+completely general file descriptions may be used. up to 16 files may
+be open at any one time (on logical numbers 0-15).
+	file 0  is input only, in text mode.
+	file 1  is output only, in text mode.
+	file -1 is teletype, in or out, using ttcall uuos.
+	     -2  "    "    , output, without <carriage return><line feed>
+			     at the end of the string typed.
+<string> = input(n);	returns the next line (terminating with lf,
+			ff, etc.) from the file currently open as 
+			logical file n, as a string. if at end-of-file,
+			return a null string, otherwise return at least
+			1 blank. n=1 is illegal. if n omitted, use 0.
+ 
+output(n) = <string>;	output the string to the file open as logical
+			file n. if n=0, or n is omitted, use n=1,but
+			with no carriage control. if n=1, first char
+			in string is used as carriage control indicator.
+<fixed> = file(n);	returns the next 36-bit word in the file open
+			as logical file n. if at end-of-file, return 
+			zero. n=0 and n=1 are illegal.
+ 
+file(n) = <fixed>;	outputs the 36-bit value as the next word in
+			the file open as logical file n. n=0 and n=1
+			are illegal.
+filename(n) = <string>;	makes the next input, output, or file oper-
+			ation on logical file n use the file described
+			by <string>. <string> is a normal pdp-10 file
+			description:
+				device:name.extension[proj,prog]
+			if device is omitted, use "dsk"
+			if name   is omitted, use "xplnn", nn=decimal
+				file number, 00-15;
+			if extension is omitted, use "dat";
+			if [proj,prog] is omitted, use [0,0] (i.e.
+				default to own directory).
+			n.b. (1) if a null extension is desired, specify
+				at least 1 blank in the extension,
+			     (2) if [proj,prog] is included, specify
+				the filename too.
+	files are always checked for correct mode and direction before
+each use, and will be closed and rewound if necessary.
+	files 0 and 1 have an initial device specification of "sysin"
+and "sysout", respectively, but this is changed to "dsk" if either
+these devices are not available, or filename is called to specify
+anything for these files.
+	at this time, no delete or rename capability exists for xpl
+programs.

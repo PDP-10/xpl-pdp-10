@@ -1,0 +1,101 @@
+   declare count_compact fixed; /* compactify calls */
+compactify:
+   procedure;
+      declare i fixed, j fixed, k fixed, l fixed, nd fixed;
+      declare DX_SIZE literally '500';
+      declare tried fixed;
+      declare dx (DX_SIZE) fixed;
+      declare tc fixed, bc fixed, delta fixed;
+      declare lower_bound fixed initial (0);
+      count_compact = count_compact + 1;
+      tried = 0;
+      do while 1;
+         /* first we must set the lower bound of the collectable area */
+         if lower_bound = 0 then lower_bound = freebase;
+         nd = - 1;
+         /* find the collectable descriptors */
+         do i = 0 to ndescript;
+             if (descriptor(i) & "fffff") >= lower_bound then
+               do;
+                  nd = nd + 1;
+                  if nd > DX_SIZE then
+                     do; /* we have too many collectable strings */
+                         output = '* * * notice from compactify: disasterious st
+ring overflow.  job abandoned. * * *';
+                         output, output, output = ''; /* clear the buffers */
+                         call exit;
+                     end;
+                  dx(nd) = i;
+               end;
+         end;
+     if nd >= 0 then
+       do;
+         /* sort in ascending order */
+         k, l = nd;
+          do while k <= l;
+            l = - 1;
+            do i = 1 to k;
+               l = i - 1;
+               if (descriptor(dx(l))&"fffff")>(descriptor(dx(i))&"fffff") then
+                  do;
+                     j = dx(l); dx(l) = dx(i); dx(i) = j;
+                     k = l;
+                  end;
+            end;
+         end;
+         /* move the active strings down */
+ 
+         /* first make sure that lower_bound isn't in the middle
+            of some string */
+      if tried = 0 then  /* first time around, or full try? */
+         do;
+         lower_bound = descriptor(dx(0)) & "fffff";
+         end;
+ 
+         freepoint = lower_bound;
+         tc, delta = 0;
+         bc = 1;     /* setup initial condition */
+         do i = 0 to nd;
+            j = descriptor(dx(i));
+            if (j & "fffff") - 1 > tc then
+               do;
+                  if delta > 0 then
+                     do k = bc to tc;
+                        corebyte (k-delta) = corebyte (k);
+                     end;
+                     freepoint = freepoint + tc - bc + 1;
+                     bc = j & "fffff";
+                     delta = bc - freepoint;
+                  end;
+               descriptor(dx(i)) = j - delta;
+               l = (j & "fffff") + shr (j,27) - 1;
+               if tc < l then tc = l;
+            end;
+            do k = bc to tc;
+               corebyte(k-delta) = corebyte (k);
+            end;
+   freepoint = freepoint + tc - bc + 1;
+   end;
+         if freelimit - freepoint < 256 then
+            do;
+               if tried then
+                  do;
+                     output = '* * * notice from compactify: insufficient string
+ space.  job abandoned. * * *';
+                     output, output, output = '';  /* flush buffers */
+                     call exit;           /* force abend */
+                  end;
+               else
+                  do;
+                     lower_bound = 0;   /* force complete garbage collection */
+                     tried = 1;
+                  end;
+            end;
+         else
+            do;
+               lower_bound = freepoint;
+               return;
+            end;
+       end;  /* of the do while 1 loop */
+   /* the hope is that we won't have to collect all the strings every time */
+end compactify;

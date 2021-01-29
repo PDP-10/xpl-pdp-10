@@ -1,0 +1,22 @@
+
+XPL compiler for the PDP-10.
+
+This compiler was written in the mid-70's by Richard L. Brisbey II and
+R. H. Hey.  Based on work done by William M. McKeeman, James J. Horning
+and David B. Wortman and described in their book "A Compiler Generator".
+
+This XPL compiler is the only know surviving version of the original
+XCOM version 4.  This compiler uses LALR parsing tables.  Unfortunately
+the BNF analyzer in this release generates MSP tables and not LALR tables.
+
+This PDP-10 compiler was placed in the public domain and released through
+DECUS.  It was found under the title DECUS.20-0122.
+
+The original compiler requires a PDP-10 to run but nexcom.xpl is a port
+of the original compiler to be compiled with the XPL to C translator
+found here:  https://sourceforge.net/projects/xpl-compiler/
+The nexcom.xpl cross compiler requires 64-bit integer support on the
+host computer.  64-bit integers are used to simulate the 36-bit word
+of the PDP-10.
+
+

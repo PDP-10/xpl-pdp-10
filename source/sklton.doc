@@ -1,0 +1,22 @@
+sklton.doc				26-jul-77, jbd
+ 
+how to use skelaton on the dec-10.
+ 
+1)  make  appropriate  changes  to   sklton.xpl.   (don't   use   line
+numbers...xcom doesn't know about them yet.)
+ 
+2) compile sklton.xpl with either xcom or ulxcom.
+ 
+3) go back to #1 if xcom complains.
+ 
+4)  create/edit  your skelaton program in file test.skl. (if you don't
+like the filename test.skl, then change "filename(0) = 'test.skl';" in
+initialization/sklton.xpl to meet your fancy.)
+ 
+5)    execute    your    new    skelaton    with   hmon.   (eg.   exec
+sklton.rel,hmon.rel).
+ 
+6) your skelaton will then try to compile whatever is in test.skl. see
+the file "xpl01.dat" for skelaton's listing of your program.
+ 
+[end of sklton.doc]

@@ -1,0 +1,101 @@
+   DECLARE COUNT_COMPACT FIXED; /* COMPACTIFY CALLS */
+COMPACTIFY:
+   PROCEDURE;
+      DECLARE I FIXED, J FIXED, K FIXED, L FIXED, ND FIXED;
+      DECLARE DX_SIZE LITERALLY '500';
+      DECLARE TRIED FIXED;
+      DECLARE DX (DX_SIZE) FIXED;
+      DECLARE TC FIXED, BC FIXED, DELTA FIXED;
+      DECLARE LOWER_BOUND FIXED INITIAL (0);
+      COUNT_COMPACT = COUNT_COMPACT + 1;
+      TRIED = 0;
+      DO WHILE 1;
+         /* FIRST WE MUST SET THE LOWER BOUND OF THE COLLECTABLE AREA */
+         IF LOWER_BOUND = 0 THEN LOWER_BOUND = FREEBASE;
+         ND = - 1;
+         /* FIND THE COLLECTABLE DESCRIPTORS */
+         DO I = 0 TO NDESCRIPT;
+             IF (DESCRIPTOR(I) & "FFFFF") >= LOWER_BOUND THEN
+               DO;
+                  ND = ND + 1;
+                  IF ND > DX_SIZE THEN
+                     DO; /* WE HAVE TOO MANY COLLECTABLE STRINGS */
+                         OUTPUT = '* * * NOTICE FROM COMPACTIFY: DISASTERIOUS ST
+RING OVERFLOW.  JOB ABANDONED. * * *';
+                         OUTPUT, OUTPUT, OUTPUT = ''; /* CLEAR THE BUFFERS */
+                         CALL EXIT;
+                     END;
+                  DX(ND) = I;
+               END;
+         END;
+     IF ND >= 0 THEN
+       DO;
+         /* SORT IN ASCENDING ORDER */
+         K, L = ND;
+          DO WHILE K <= L;
+            L = - 1;
+            DO I = 1 TO K;
+               L = I - 1;
+               IF (DESCRIPTOR(DX(L))&"FFFFF")>(DESCRIPTOR(DX(I))&"FFFFF") THEN
+                  DO;
+                     J = DX(L); DX(L) = DX(I); DX(I) = J;
+                     K = L;
+                  END;
+            END;
+         END;
+         /* MOVE THE ACTIVE STRINGS DOWN */
+ 
+         /* FIRST MAKE SURE THAT LOWER_BOUND ISN'T IN THE MIDDLE
+            OF SOME STRING */
+      IF TRIED = 0 THEN  /* FIRST TIME AROUND, OR FULL TRY? */
+         DO;
+         LOWER_BOUND = DESCRIPTOR(DX(0)) & "FFFFF";
+         END;
+ 
+         FREEPOINT = LOWER_BOUND;
+         TC, DELTA = 0;
+         BC = 1;     /* SETUP INITIAL CONDITION */
+         DO I = 0 TO ND;
+            J = DESCRIPTOR(DX(I));
+            IF (J & "FFFFF") - 1 > TC THEN
+               DO;
+                  IF DELTA > 0 THEN
+                     DO K = BC TO TC;
+                        COREBYTE (K-DELTA) = COREBYTE (K);
+                     END;
+                     FREEPOINT = FREEPOINT + TC - BC + 1;
+                     BC = J & "FFFFF";
+                     DELTA = BC - FREEPOINT;
+                  END;
+               DESCRIPTOR(DX(I)) = J - DELTA;
+               L = (J & "FFFFF") + SHR (J,27) - 1;
+               IF TC < L THEN TC = L;
+            END;
+            DO K = BC TO TC;
+               COREBYTE(K-DELTA) = COREBYTE (K);
+            END;
+   FREEPOINT = FREEPOINT + TC - BC + 1;
+   END;
+         IF FREELIMIT - FREEPOINT < 256 THEN
+            DO;
+               IF TRIED THEN
+                  DO;
+                     OUTPUT = '* * * NOTICE FROM COMPACTIFY: INSUFFICIENT STRING
+ SPACE.  JOB ABANDONED. * * *';
+                     OUTPUT, OUTPUT, OUTPUT = '';  /* FLUSH BUFFERS */
+                     CALL EXIT;           /* FORCE ABEND */
+                  END;
+               ELSE
+                  DO;
+                     LOWER_BOUND = 0;   /* FORCE COMPLETE GARBAGE COLLECTION */
+                     TRIED = 1;
+                  END;
+            END;
+         ELSE
+            DO;
+               LOWER_BOUND = FREEPOINT;
+               RETURN;
+            END;
+       END;  /* OF THE DO WHILE 1 LOOP */
+   /* THE HOPE IS THAT WE WON'T HAVE TO COLLECT ALL THE STRINGS EVERY TIME */
+END COMPACTIFY;

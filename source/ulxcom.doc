@@ -1,0 +1,15 @@
+ulxcom.doc					26-jul-77, jbd
+ 
+there were a few modifications that we made to the xcom from  dataline
+systems.  ulxcom has those changes.
+ 
+these   modifications   eliminate  the  sensitivity  to  the  case  of
+identifiers, handle tabs in the source text a bit more elegantly,  and
+print out the procedure names on the controlling tty as they are being
+compiled.
+ 
+suggested functionality: 1) add crefing. 2) handle line numbers in the
+source. (modify hmon). 3) generate kl extended instructions for string
+operations.
+ 
+[end of ulxcom.doc]

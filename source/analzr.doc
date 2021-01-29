@@ -1,0 +1,21 @@
+analzr.doc				26-jul-77, jbd
+ 
+how to use analyzer on the dec-10.
+ 
+1) type the monitor command "run analzr". this will invoke analyzer.
+ 
+2) type in the name of the file containing your bnf in response to the
+"grammar file: " prompt.
+ 
+3) then type the name of the file/device where you want your output to
+go in response to the "output file: " prompt. (warning: the output can
+be 132 characters wide - as done in the ibm version.)
+ 
+4)  analyzer  will  then go about its business, complaining/commenting
+about your grammar. all output will go to the specified output file.
+ 
+note: at this point, analzr attempts to analyze the null grammar after
+working  on  the  input file. the result is that strange things appear
+after the last analysis. just ignore them (or fix analzer.)
+ 
+[end of analzr.doc]
